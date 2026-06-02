@@ -1,0 +1,75 @@
+# Create a environment file
+
+nano env.sh 
+
+export AWS_REGION=us-west-1
+
+export VPC_CIDR=10.0.0.0/16
+
+export PUB1_CIDR=10.0.1.0/24
+export PUB2_CIDR=10.0.2.0/24
+
+export PRIV1_CIDR=10.0.3.0/24
+export PRIV2_CIDR=10.0.4.0/24
+
+export AZ_1=us-west-1a
+export AZ_2=us-west-1b
+
+# 1. Create VPC
+
+aws ec2 create-vpc \
+--cidr-block 10.0.0.0/16 \
+--tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value=Project-VPC}]'
+
+VPC_ID=$(aws ec2 describe-vpcs \
+--query "Vpcs[?Tags[?Key=='Name' && Value=='Project-VPC']].VpcId | [0]" \
+--output text)
+
+echo $VPC_ID
+
+# Enable DNS:
+aws ec2 modify-vpc-attribute \
+--vpc-id $VPC_ID \
+--enable-dns-support
+
+aws ec2 modify-vpc-attribute \
+--vpc-id $VPC_ID \
+--enable-dns-hostnames
+
+# 2. Create Internet Gateway
+
+aws ec2 create-internet-gateway \
+--tag-specifications 'ResourceType=internet-gateway,Tags=[{Key=Name,Value=Project-IGW}]'
+
+
+IGW_ID=$(aws ec2 describe-internet-gateways \
+--query "InternetGateways[?Tags[?Key=='Name' && Value=='Project-IGW']].InternetGatewayId | [0]" \
+--output text)
+
+
+aws ec2 attach-internet-gateway \
+--internet-gateway-id $IGW_ID \
+--vpc-id $VPC_ID
+
+
+# 3. Create Public Subnet 1
+
+aws ec2 create-subnet \
+--vpc-id $VPC_ID \
+--cidr-block 10.0.1.0/24 \
+--availability-zone us-west-1a \
+--tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=Public-Subnet-1}]'
+
+
+PUB1_ID=$(aws ec2 describe-subnets \
+--query "Subnets[?Tags[?Key=='Name' && Value=='Public-Subnet-1']].SubnetId | [0]" \
+--output text)
+
+# Enable public IP assignment:
+
+aws ec2 modify-subnet-attribute \
+--subnet-id $PUB1_ID \
+--map-public-ip-on-launch
+
+
+
