@@ -15,12 +15,16 @@ export PRIV2_CIDR=10.0.4.0/24
 export AZ_1=us-west-1a
 export AZ_2=us-west-1b
 
+# run this command to use env.sh:
+source env.sh
+
 # 1. Create VPC
 
 aws ec2 create-vpc \
 --cidr-block 10.0.0.0/16 \
 --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value=Project-VPC}]'
 
+# store in a variable
 VPC_ID=$(aws ec2 describe-vpcs \
 --query "Vpcs[?Tags[?Key=='Name' && Value=='Project-VPC']].VpcId | [0]" \
 --output text)
@@ -41,11 +45,12 @@ aws ec2 modify-vpc-attribute \
 aws ec2 create-internet-gateway \
 --tag-specifications 'ResourceType=internet-gateway,Tags=[{Key=Name,Value=Project-IGW}]'
 
-
+# store in a variable
 IGW_ID=$(aws ec2 describe-internet-gateways \
 --query "InternetGateways[?Tags[?Key=='Name' && Value=='Project-IGW']].InternetGatewayId | [0]" \
 --output text)
 
+echo $IGW_ID
 
 aws ec2 attach-internet-gateway \
 --internet-gateway-id $IGW_ID \
@@ -60,10 +65,12 @@ aws ec2 create-subnet \
 --availability-zone us-west-1a \
 --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=Public-Subnet-1}]'
 
-
+# store in a variable
 PUB1_ID=$(aws ec2 describe-subnets \
 --query "Subnets[?Tags[?Key=='Name' && Value=='Public-Subnet-1']].SubnetId | [0]" \
 --output text)
+
+echo $PUB1_ID
 
 # Enable public IP assignment:
 
@@ -71,5 +78,202 @@ aws ec2 modify-subnet-attribute \
 --subnet-id $PUB1_ID \
 --map-public-ip-on-launch
 
+# 4. Create Public Subnet 2
 
+aws ec2 create-subnet \
+--vpc-id $VPC_ID \
+--cidr-block 10.0.2.0/24 \
+--availability-zone us-west-1b \
+--tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=Public-Subnet-2}]'
 
+# store in a variable
+PUB2_ID=$(aws ec2 describe-subnets \
+--query "Subnets[?Tags[?Key=='Name' && Value=='Public-Subnet-2']].SubnetId | [0]" \
+--output text)
+
+echo $PUB2_ID
+
+aws ec2 modify-subnet-attribute \
+--subnet-id $PUB2_ID \
+--map-public-ip-on-launch
+
+# 5. Create Private Subnet 1
+
+aws ec2 create-subnet \
+--vpc-id $VPC_ID \
+--cidr-block 10.0.3.0/24 \
+--availability-zone us-west-1a \
+--tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=Private-Subnet-1}]'
+
+# store in a variable
+PRIV1_ID=$(aws ec2 describe-subnets \
+--query "Subnets[?Tags[?Key=='Name' && Value=='Private-Subnet-1']].SubnetId | [0]" \
+--output text)
+
+echo $PRIV1_ID
+
+# 6. Create Private Subnet 2
+
+aws ec2 create-subnet \
+--vpc-id $VPC_ID \
+--cidr-block 10.0.4.0/24 \
+--availability-zone us-west-1b \
+--tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=Private-Subnet-2}]'
+
+# store in a variable
+PRIV2_ID=$(aws ec2 describe-subnets \
+--query "Subnets[?Tags[?Key=='Name' && Value=='Private-Subnet-2']].SubnetId | [0]" \
+--output text)
+
+echo $PRIV2_ID
+
+# 7. Public Route Table
+
+aws ec2 create-route-table \
+--vpc-id $VPC_ID \
+--tag-specifications 'ResourceType=route-table,Tags=[{Key=Name,Value=Public-RT}]'
+
+# store in a variable
+PUB_RT=$(aws ec2 describe-route-tables \
+--query "RouteTables[?Tags[?Key=='Name' && Value=='Public-RT']].RouteTableId | [0]" \
+--output text)
+
+echo $PUB_RT
+
+aws ec2 create-route \
+--route-table-id $PUB_RT \
+--destination-cidr-block 0.0.0.0/0 \
+--gateway-id $IGW_ID
+
+aws ec2 associate-route-table \
+--route-table-id $PUB_RT \
+--subnet-id $PUB1_ID
+
+aws ec2 associate-route-table \
+--route-table-id $PUB_RT \
+--subnet-id $PUB2_ID
+
+# 8. Elastic IP
+
+aws ec2 allocate-address \
+--domain vpc \
+--tag-specifications 'ResourceType=elastic-ip,Tags=[{Key=Name,Value=Project-NAT-EIP}]'
+
+# store in a variable
+EIP_ALLOC=$(aws ec2 describe-addresses \
+--query "Addresses[?Tags[?Key=='Name' && Value=='Project-NAT-EIP']].AllocationId | [0]" \
+--output text)
+
+echo $EIP_ALLOC
+
+# 9. NAT Gateway
+
+aws ec2 create-nat-gateway \
+--subnet-id $PUB1_ID \
+--allocation-id $EIP_ALLOC \
+--tag-specifications 'ResourceType=natgateway,Tags=[{Key=Name,Value=Project-NAT}]'
+
+# store in a variable
+NAT_ID=$(aws ec2 describe-nat-gateways \
+--filter Name=tag:Name,Values=Project-NAT \
+--query "NatGateways[0].NatGatewayId" \
+--output text)
+
+echo $NAT_ID
+
+aws ec2 wait nat-gateway-available \
+--nat-gateway-ids $NAT_ID
+
+# 10. Private Route Table
+
+aws ec2 create-route-table \
+--vpc-id $VPC_ID \
+--tag-specifications 'ResourceType=route-table,Tags=[{Key=Name,Value=Private-RT}]'
+
+# Store in a variable
+
+PRIV_RT=$(aws ec2 describe-route-tables \
+--query "RouteTables[?Tags[?Key=='Name' && Value=='Private-RT']].RouteTableId | [0]" \
+--output text)
+
+# create route:
+aws ec2 create-route \
+--route-table-id $PRIV_RT \
+--destination-cidr-block 0.0.0.0/0 \
+--nat-gateway-id $NAT_ID
+
+# associate the table:
+aws ec2 associate-route-table \
+--route-table-id $PRIV_RT \
+--subnet-id $PRIV1_ID
+
+aws ec2 associate-route-table \
+--route-table-id $PRIV_RT \
+--subnet-id $PRIV2_ID
+
+# 11. Security Groups
+
+aws ec2 create-security-group \
+--group-name ALB-SG \
+--description "ALB Security Group" \
+--vpc-id $VPC_ID \
+--tag-specifications 'ResourceType=security-group,Tags=[{Key=Name,Value=ALB-SG}]'
+
+# Store in a variable
+ALB_SG=$(aws ec2 describe-security-groups \
+--filters Name=group-name,Values=ALB-SG \
+--query "SecurityGroups[0].GroupId" \
+--output text)
+
+# Ingress
+aws ec2 authorize-security-group-ingress \
+--group-id $ALB_SG \
+--protocol tcp \
+--port 80 \
+--cidr 0.0.0.0/0
+
+# 12. Create ECS Security Group
+
+aws ec2 create-security-group \
+--group-name ECS-SG \
+--description "ECS Tasks Security Group" \
+--vpc-id $VPC_ID \
+--tag-specifications 'ResourceType=security-group,Tags=[{Key=Name,Value=ECS-SG}]'
+
+# Store in a variable
+ECS_SG=$(aws ec2 describe-security-groups \
+--filters Name=group-name,Values=ECS-SG Name=vpc-id,Values=$VPC_ID \
+--query "SecurityGroups[0].GroupId" \
+--output text)
+
+echo $ECS_SG
+
+aws ec2 authorize-security-group-ingress \
+--group-id $ECS_SG \
+--protocol tcp \
+--port 8000 \
+--source-group $ALB_SG
+
+# 13. Create RDS Security Group
+
+aws ec2 create-security-group \
+--group-name RDS-SG \
+--description "RDS PostgreSQL Security Group" \
+--vpc-id $VPC_ID \
+--tag-specifications 'ResourceType=security-group,Tags=[{Key=Name,Value=RDS-SG}]'
+
+# Store in a variable
+RDS_SG=$(aws ec2 describe-security-groups \
+--filters Name=group-name,Values=RDS-SG Name=vpc-id,Values=$VPC_ID \
+--query "SecurityGroups[0].GroupId" \
+--output text)
+
+echo $RDS_SG
+
+aws ec2 authorize-security-group-ingress \
+--group-id $RDS_SG \
+--protocol tcp \
+--port 5432 \
+--source-group $ECS_SG
+
+#
