@@ -10,7 +10,7 @@
 # ------------------------------------------------------------------------------
 
 # Stage 1: Build stage with development dependencies
-FROM python:3.9-slim as builder
+FROM python:3.9-slim AS builder
 
 # Set environment variables for build
 ENV PYTHONUNBUFFERED=1 \
@@ -37,12 +37,12 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 # ------------------------------------------------------------------------------
 
 # Use minimal base image for production
-FROM python:3.9-slim as production
+FROM python:3.9-slim AS production
 
 # Set environment variables for production
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    DJANGO_SETTINGS_MODULE=myproject.settings.production \
+    DJANGO_SETTINGS_MODULE=hello_world_django_app.settings \
     PATH="/opt/venv/bin:$PATH"
 
 # Install runtime dependencies only
@@ -72,7 +72,7 @@ RUN mkdir -p /usr/src/app/static /usr/src/app/media /usr/src/app/logs \
 USER django
 
 # Collect static files
-RUN python manage.py collectstatic --noinput --clear
+#RUN python manage.py collectstatic --noinput --clear
 
 # Health check for container orchestration
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
@@ -86,4 +86,5 @@ EXPOSE 8000
 # ------------------------------------------------------------------------------
 
 # Use gunicorn for production WSGI server
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120", "--access-logfile", "-", "--error-logfile", "-", "myproject.wsgi:application"]
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+# RUN python manage.py collectstatic --noinput --clear
